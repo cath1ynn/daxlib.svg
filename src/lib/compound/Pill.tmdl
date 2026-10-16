@@ -1,14 +1,18 @@
-/// Create a pill SVG compound (rounded rectangle with auto-sized text centered inside)
+/// Create a pill SVG compound (rounded rectangle with centered text)
 /// @param {int} x – The x position of compound
 /// @param {int} y – The y position of compound
 /// @param {int} width – The width of the compound
 /// @param {int} height – The height of the compound
 /// @param {string} txt – The text to display
-/// @param {string} [color] – Optional: The hex color of the pill, e.g., "#01B8AA80". Defaults to "#01B8AA"
-/// @param {decimal} [paddingX] – Optional: The horizontal padding percentage (0.0-1.0, e.g., 0.1 = 10% padding). Defaults to 0.05
-/// @param {decimal} [paddingY] – Optional: The vertical padding percentage (0.0-1.0, e.g., 0.1 = 10% padding). Defaults to 0.02
+/// @param {string} [color] – Optional: The pill/border color
+/// @param {decimal} [paddingX] – Optional horizontal padding percentage. Defaults to 0.05
+/// @param {decimal} [paddingY] – Optional vertical padding percentage. Defaults to 0.02
+/// @param {boolean} [wrapText] – Optional: Wrap long text onto multiple lines. Defaults to FALSE()
+/// @param {int} [wrapAtChar] – Optional: Preferred wrap length. Defaults to 20
+/// @param {int} [fontSize] – Optional fixed font size. Defaults to 14
+/// @param {string} [textColor] – Optional text colour. Defaults to pill colour darkened by 35%
 /// @returns {string} SVG Pill
-function 'DaxLib.SVG.Compound.Pill' = 
+function 'DaxLib.SVG.Compound.Pill' =
 		(
 			x: INT64,
 			y: INT64,
@@ -17,25 +21,116 @@ function 'DaxLib.SVG.Compound.Pill' =
 			txt: STRING,
 			color: STRING = BLANK(),
 			paddingX: DOUBLE = 0.05,
-			paddingY: DOUBLE = 0.02
+			paddingY: DOUBLE = 0.02,
+			wrapText: BOOLEAN = FALSE(),
+			wrapAtChar: INT64 = 20,
+			fontSize: INT64 = 14,
+			textColor: STRING = BLANK()
 		) =>
-
-		// Apply padding to dimensions
-		VAR _X = 			x + (width * (IF(ISBLANK(paddingX), 0, paddingX) / 2))
-		VAR _Y = 			y + (height * (IF(ISBLANK(paddingY), 0, paddingY) / 2))
-		VAR _Width = 		width * (1 - IF(ISBLANK(paddingX), 0, paddingX))
-		VAR _Height = 		height * (1 - IF(ISBLANK(paddingY), 0, paddingY))
-
-		VAR _Color = IF( NOT ISBLANK( color ), color, "#01B8AA" )
-
-		VAR _Pill = 
+		
+		VAR _PaddingX = COALESCE( paddingX, 0.05 )
+		VAR _PaddingY = COALESCE( paddingY, 0.02 )
+		VAR _FontSize = COALESCE( fontSize, 14 )
+		VAR _WrapAtChar = MAX( 1, COALESCE( wrapAtChar, 20 ) )
+		
+		VAR _X = x + width * _PaddingX / 2
+		VAR _Y = y + height * _PaddingY / 2
+		VAR _Width = width * ( 1 - _PaddingX )
+		VAR _Height = height * ( 1 - _PaddingY )
+		
+		VAR _Color = COALESCE( color, "#01B8AA" )
+		
+		// Default text colour: 35% darker than border colour
+		VAR _DefaultTextColor =
+			DaxLib.SVG.Color.Hex.Interpolate(
+				_Color,
+				"#000000",
+				0.35
+			)
+		
+		// Explicit text colour takes precedence
+		VAR _TextColor =
+			COALESCE(
+				textColor,
+				_DefaultTextColor
+			)
+		
+		VAR _Text = TRIM( txt )
+		
+		
+		VAR _PathText = SUBSTITUTE( _Text, " ", "|" )
+		VAR _WordCount =
+			IF( LEN( _Text ) > 0, PATHLENGTH( _PathText ), 0 )
+		
+		VAR _ShouldWrap =
+			wrapText
+				&& LEN( _Text ) > _WrapAtChar
+				&& _WordCount > 1
+		
+		VAR _Candidates =
+			ADDCOLUMNS(
+				GENERATESERIES( 1, MAX( 1, _WordCount - 1 ) ),
+				"@Length",
+					VAR _N = [Value]
+					RETURN
+						LEN(
+							CONCATENATEX(
+								FILTER(
+									GENERATESERIES( 1, _WordCount ),
+									[Value] <= _N
+								),
+								PATHITEM( _PathText, [Value], TEXT ),
+								" ",
+								[Value], ASC
+							)
+						)
+			)
+		
+		VAR _SplitAt =
+			IF(
+				_ShouldWrap,
+				COALESCE(
+					MAXX(
+						FILTER( _Candidates, [@Length] <= _WrapAtChar ),
+						[Value]
+					),
+					1
+				),
+				0
+			)
+		
+		VAR _Line1 =
+			IF(
+				_ShouldWrap,
+				CONCATENATEX(
+					FILTER( GENERATESERIES( 1, _WordCount ), [Value] <= _SplitAt ),
+					PATHITEM( _PathText, [Value], TEXT ),
+					" ",
+					[Value], ASC
+				),
+				_Text
+			)
+		
+		VAR _Line2 =
+			IF(
+				_ShouldWrap,
+				CONCATENATEX(
+					FILTER( GENERATESERIES( 1, _WordCount ), [Value] > _SplitAt ),
+					PATHITEM( _PathText, [Value], TEXT ),
+					" ",
+					[Value], ASC
+				),
+				BLANK()
+			)
+		
+		VAR _Pill =
 			DaxLib.SVG.Element.Rect(
 				_X,
 				_Y,
-				_Width * 0.98,
-				_Height * 0.92,
-				10,
-				10,
+				_Width,
+				_Height,
+				_Height / 2,
+				_Height / 2,
 				DaxLib.SVG.Attr.Shapes(
 					_Color,
 					0.2,
@@ -44,40 +139,52 @@ function 'DaxLib.SVG.Compound.Pill' =
 					1
 				)
 			)
-
-		// Auto-size font to fit text within pill
-		VAR _AvailableWidth = _Width * 0.90
-		VAR _CharWidthRatio = 0.55
-		VAR _TextWidthAtOne = LEN( txt ) * _CharWidthRatio
-		VAR _MaxFontFromWidth = IF( _TextWidthAtOne > 0, _AvailableWidth / _TextWidthAtOne, 12 )
-		VAR _MaxFontFromHeight = _Height * 0.75
-		VAR _FontSize = MAX( 4, MIN( 12, MIN( _MaxFontFromWidth, _MaxFontFromHeight ) ) )
-
-		VAR _TextElement = 
-			DaxLib.SVG.Element.Txt(
-				_X + (_Width * 0.50),
-				_Y + (_Height * 0.58),
-				txt,
-				0,
-				0,
-				DaxLib.SVG.Attr.Shapes( _Color ) &
-				DaxLib.SVG.Attr.Txt(
-					"Segoe UI",
-					_FontSize,
-					BLANK(),
-					BLANK(),
-					"middle",
-					"middle"
-				)
-			)
-
-		VAR _CombinedElements = 
-			_Pill & 
-			_TextElement
-
-		RETURN
 		
-			IF( NOT ISBLANK( txt ), _CombinedElements )
+		VAR _TextAttr =
+			DaxLib.SVG.Attr.Shapes( _TextColor ) &
+			DaxLib.SVG.Attr.Txt(
+				"Segoe UI",
+				_FontSize,
+				BLANK(),
+				BLANK(),
+				"middle",
+				"middle"
+			)
+		
+		VAR _CenterX = _X + _Width / 2
+		VAR _CenterY = _Y + _Height / 2
+		VAR _LineOffset = _FontSize * 0.65
+		
+		VAR _TextLine1 =
+			DaxLib.SVG.Element.Txt(
+				_CenterX,
+				_CenterY - IF( _ShouldWrap, _LineOffset, 0 ),
+				_Line1,
+				0,
+				0,
+				_TextAttr
+			)
+		
+		VAR _TextLine2 =
+			IF(
+				_ShouldWrap,
+				DaxLib.SVG.Element.Txt(
+					_CenterX,
+					_CenterY + _LineOffset,
+					_Line2,
+					0,
+					0,
+					_TextAttr
+				),
+				""
+			)
+		
+		RETURN
+			IF(
+				NOT ISBLANK( _Text ),
+				_Pill &
+				IF( _ShouldWrap, _TextLine1 & _TextLine2, _TextLine1 )
+			)
 
 	annotation DAXLIB_PackageId = __PLACEHOLDER_PACKAGE_ID__
 
