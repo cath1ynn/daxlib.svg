@@ -1,0 +1,178 @@
+/// Renders one or more vertically stacked pill badges
+/// in a compact SVG canvas.
+/// 
+/// @param {string} txt - Single or delimited labels
+/// @param {string} [delimiter] - Default ";"
+/// @param {string} [colors] - Delimited border colours, in label order
+/// @param {string} [color] - Default border colour
+/// @param {int} [fontSize] - Default 16
+/// @param {int} [minWidth] - Default 90
+/// @param {int} [gap] - Vertical gap, default 4
+/// @returns {string} SVG data URI
+function 'DaxLib.SVG.Viz.Pills' =
+    (
+      txt: STRING,
+      delimiter: STRING = ";",
+      colors: STRING = BLANK(),
+      color: STRING = BLANK(),
+      fontSize: INT64 = 16,
+      minWidth: INT64 = 90,
+      gap: INT64 = 4
+    ) =>
+    
+    VAR _Text = TRIM( txt & "" )
+    VAR _Delimiter = COALESCE( delimiter, ";" )
+    VAR _FontSize = COALESCE( fontSize, 16 )
+    VAR _MinWidth = COALESCE( minWidth, 90 )
+    VAR _Gap = MAX( 0, COALESCE( gap, 4 ) )
+    VAR _DefaultColor = COALESCE( color, "#01B8AA" )
+    
+    /* =========================
+    Pill sizing
+    ========================= */
+    VAR _CharWidthRatio = 0.60
+    
+    VAR _TextPaddingX = 24
+    VAR _TextPaddingY = 12
+    
+    VAR _CanvasPadding = 2
+    
+    VAR _PillHeight =
+      ROUNDUP (
+        MAX (
+          24,
+          _FontSize * 1.15 + _TextPaddingY * 2
+        ),
+        0
+      )
+    
+    /* =========================
+    Split labels / colours
+    ========================= */
+    VAR _LabelPath =
+      SUBSTITUTE( _Text, _Delimiter, "|" )
+    
+    VAR _ColorPath =
+      SUBSTITUTE(
+        COALESCE( colors, "" ),
+        _Delimiter,
+        "|"
+      )
+    
+    VAR _Count =
+      IF(
+        LEN( _Text ) > 0,
+        PATHLENGTH( _LabelPath ),
+        0
+      )
+    
+    VAR _Items =
+      FILTER(
+        ADDCOLUMNS(
+          GENERATESERIES( 1, _Count ),
+    
+          "@Label",
+            TRIM(
+              PATHITEM(
+                _LabelPath,
+                [Value],
+                TEXT
+              )
+            ),
+    
+          "@Color",
+            VAR _ItemColor =
+              TRIM(
+                PATHITEM(
+                  _ColorPath,
+                  [Value],
+                  TEXT
+                ) & ""
+              )
+            RETURN
+              IF(
+                _ItemColor <> "",
+                _ItemColor,
+                _DefaultColor
+              )
+        ),
+        [@Label] <> ""
+      )
+    
+    /* =========================
+    Pill widths
+    ========================= */
+    VAR _Pills =
+      ADDCOLUMNS(
+        _Items,
+        "@Width",
+          ROUNDUP(
+            MAX(
+              _MinWidth,
+              LEN( [@Label] ) * _FontSize * _CharWidthRatio
+                + ( _TextPaddingX * 2 )
+            ),
+            0
+          )
+      )
+    
+    VAR _PillCount =
+      COUNTROWS( _Pills )
+    
+    VAR _CanvasWidth =
+      MAXX( _Pills, [@Width] ) + ( _CanvasPadding * 2 )
+    
+    VAR _StackHeight =
+      ( _PillCount * _PillHeight )
+        + MAX( 0, _PillCount - 1 ) * _Gap
+    
+    VAR _CanvasHeight =
+      _StackHeight + ( _CanvasPadding * 2 )
+    
+    /* =========================
+    Draw pills
+    ========================= */
+    VAR _Marks =
+      CONCATENATEX(
+        _Pills,
+    
+        VAR _Index = [Value]
+        VAR _Label = [@Label]
+        VAR _Color = [@Color]
+        VAR _Width = [@Width]
+    
+        VAR _Y =
+          _CanvasPadding
+          + ( _Index - 1 ) * ( _PillHeight + _Gap )
+    
+        RETURN
+          DaxLib.SVG.Compound.Pill (
+            1,
+            _Y,
+            _Width,
+            _PillHeight,
+            _Label,
+            _Color,
+            0,
+            0,
+            FALSE(),
+            20,
+            _FontSize,
+            BLANK()
+          ),
+    
+        "",
+        [Value],
+        ASC
+      )
+    
+    RETURN
+      IF(
+        _PillCount > 0,
+        DaxLib.SVG.SVG(
+          _CanvasWidth & "px",
+          _CanvasHeight & "px",
+          _Marks,
+          "0 0 " & _CanvasWidth & " " & _CanvasHeight
+        )
+      )
