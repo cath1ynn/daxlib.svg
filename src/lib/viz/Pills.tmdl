@@ -176,3 +176,7 @@ function 'DaxLib.SVG.Viz.Pills' =
           "0 0 " & _CanvasWidth & " " & _CanvasHeight
         )
       )
+
+	annotation DAXLIB_PackageId = __PLACEHOLDER_PACKAGE_ID__
+
+	annotation DAXLIB_PackageVersion = __PLACEHOLDER_PACKAGE_VERSION__
