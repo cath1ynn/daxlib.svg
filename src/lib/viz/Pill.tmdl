@@ -1,29 +1,231 @@
-/// Renders a pill-shaped badge as an SVG data URI with centered text
+/// Renders a dynamically sized pill-shaped badge as an SVG data URI
+/// using compact canvas sizing consistent with DaxLib.SVG.Viz.Pills
+/// 
 /// @param {string} txt – The text to display
-/// @param {string} [color] – Optional pill color. Defaults to Power BI theme color
-/// @param {int} [width] – Optional: SVG width. Defaults to 120
-/// @param {int} [height] – Optional: SVG height. Defaults to 48
-/// @returns {string} SVG Pill
+/// @param {string} [color] – Optional pill/border colour
+/// @param {int} [width] – Optional fixed width. Blank = dynamic width
+/// @param {boolean} [wrapText] – Enable word wrapping. Defaults to FALSE()
+/// @param {int} [wrapAtChar] – Preferred characters per line. Defaults to 20
+/// @param {int} [fontSize] – Fixed font size. Defaults to 14
+/// @param {string} [textColor] – Optional text colour. Defaults to pill colour
+/// @param {int} [minWidth] – Minimum pill width. Defaults to 90
+/// @returns {string} SVG data URI
 function 'DaxLib.SVG.Viz.Pill' =
 		(
 			txt: STRING,
 			color: STRING = BLANK(),
-			width: INT64 = 120,
-			height: INT64 = 48
+			width: INT64 = BLANK(),
+			wrapText: BOOLEAN = FALSE(),
+			wrapAtChar: INT64 = 20,
+			fontSize: INT64 = 14,
+			textColor: STRING = BLANK(),
+			minWidth: INT64 = 90
 		) =>
-
-			VAR _Marks =
-				DaxLib.SVG.Compound.Pill(
-					0, 
-                    0, 
-                    width, 
-                    height, 
-                    txt, 
-                    color
+		
+		VAR _Text = TRIM( txt )
+		
+		/* =========================
+		Configuration
+		========================= */
+		VAR _FontSize = COALESCE( fontSize, 14 )
+		VAR _WrapAtChar = MAX( 1, COALESCE( wrapAtChar, 20 ) )
+		VAR _MinWidth = COALESCE( minWidth, 90 )
+		
+		/* =========================
+		Compact sizing defaults
+		========================= */
+		VAR _MinHeight = 24
+		VAR _TextPaddingX = 24
+		VAR _TextPaddingY = 12
+		VAR _CanvasPadding = 2
+		VAR _CharWidthRatio = 0.60
+		
+		/* =========================
+		Split text into words
+		========================= */
+		VAR _PathText = SUBSTITUTE( _Text, " ", "|" )
+		
+		VAR _WordCount =
+			IF(
+				LEN( _Text ) > 0,
+				PATHLENGTH( _PathText ),
+				0
+			)
+		
+		/* =========================
+		Determine whether wrapping is required
+		========================= */
+		VAR _ShouldWrap =
+			wrapText
+				&& LEN( _Text ) > _WrapAtChar
+				&& _WordCount > 1
+		
+		/* =========================
+		Candidate split points
+		========================= */
+		VAR _Candidates =
+			ADDCOLUMNS(
+				GENERATESERIES(
+					1,
+					MAX( 1, _WordCount - 1 )
+				),
+				"@Length",
+					VAR _N = [Value]
+					RETURN
+						LEN(
+							CONCATENATEX(
+								FILTER(
+									GENERATESERIES( 1, _WordCount ),
+									[Value] <= _N
+								),
+								PATHITEM( _PathText, [Value], TEXT ),
+								" ",
+								[Value],
+								ASC
+							)
+						)
+			)
+		
+		/* =========================
+		Last word boundary within wrap limit
+		========================= */
+		VAR _SplitAt =
+			IF(
+				_ShouldWrap,
+				COALESCE(
+					MAXX(
+						FILTER(
+							_Candidates,
+							[@Length] <= _WrapAtChar
+						),
+						[Value]
+					),
+					1
+				),
+				0
+			)
+		
+		/* =========================
+		Wrapped lines
+		========================= */
+		VAR _Line1 =
+			IF(
+				_ShouldWrap,
+				CONCATENATEX(
+					FILTER(
+						GENERATESERIES( 1, _WordCount ),
+						[Value] <= _SplitAt
+					),
+					PATHITEM( _PathText, [Value], TEXT ),
+					" ",
+					[Value],
+					ASC
+				),
+				_Text
+			)
+		
+		VAR _Line2 =
+			IF(
+				_ShouldWrap,
+				CONCATENATEX(
+					FILTER(
+						GENERATESERIES( 1, _WordCount ),
+						[Value] > _SplitAt
+					),
+					PATHITEM( _PathText, [Value], TEXT ),
+					" ",
+					[Value],
+					ASC
+				),
+				BLANK()
+			)
+		
+		VAR _LineCount =
+			IF(
+				_ShouldWrap && NOT ISBLANK( _Line2 ),
+				2,
+				1
+			)
+		
+		VAR _LongestLineLen =
+			MAX(
+				LEN( _Line1 ),
+				LEN( _Line2 )
+			)
+		
+		/* =========================
+		Text width
+		========================= */
+		VAR _TextWidth =
+			_LongestLineLen * _FontSize * _CharWidthRatio
+		
+		/* =========================
+		Pill size
+		========================= */
+		VAR _AutoWidth =
+			ROUNDUP(
+				MAX(
+					_MinWidth,
+					_TextWidth + ( _TextPaddingX * 2 )
+				),
+				0
+			)
+		
+		VAR _FinalWidth =
+			COALESCE( width, _AutoWidth )
+		
+		VAR _LineHeight = _FontSize * 1.15
+		
+		VAR _AutoHeight =
+			ROUNDUP(
+				( _LineCount * _LineHeight ) + ( _TextPaddingY * 2 ),
+				0
+			)
+		
+		VAR _FinalHeight =
+			MAX( _MinHeight, _AutoHeight )
+		
+		/* =========================
+		Canvas size
+		========================= */
+		VAR _CanvasWidth =
+			_FinalWidth + ( _CanvasPadding * 2 )
+		
+		VAR _CanvasHeight =
+			_FinalHeight + ( _CanvasPadding * 2 )
+		
+		VAR _PillX = _CanvasPadding
+		VAR _PillY = _CanvasPadding
+		
+		/* =========================
+		Pill compound
+		========================= */
+		VAR _Marks =
+			DaxLib.SVG.Compound.Pill(
+				_PillX,
+				_PillY,
+				_FinalWidth,
+				_FinalHeight,
+				_Text,
+				color,
+				0,
+				0,
+				wrapText,
+				wrapAtChar,
+				fontSize,
+				textColor
+			)
+		
+		RETURN
+			IF(
+				NOT ISBLANK( _Marks ),
+				DaxLib.SVG.SVG(
+					_CanvasWidth & "px",
+					_CanvasHeight & "px",
+					_Marks,
+					"0 0 " & _CanvasWidth & " " & _CanvasHeight
 				)
-
-			RETURN
-				IF( NOT ISBLANK( _Marks ), DaxLib.SVG.SVG( "100%", "100%", _Marks, "0 0 " & width & " " & height ) )
+			)
 
 	annotation DAXLIB_PackageId = __PLACEHOLDER_PACKAGE_ID__
 
